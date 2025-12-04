@@ -1,0 +1,297 @@
+# rPPG Heart Rate Monitor Configuration
+# Modern YAML-based configuration with nested structure
+
+# Hardware Configuration
+hardware:
+  camera_id: 0
+  target_fps: 30
+  resolution:
+    width: 1280
+    height: 720
+  reconnect:
+    max_retries: 5
+    backoff_intervals: [1, 2, 5, 10, 30]
+
+# Algorithm Configuration
+algorithm:
+  # rPPG method: 'chrom' (chrominance-based)
+  method: "chrom"
+
+  # Face detection backend: 'mediapipe', 'dnn', 'auto'
+  face_detector: "auto"
+
+  # DNN model paths (for OpenCV DNN backend)
+  dnn_model:
+    prototxt: "models/deploy.prototxt"
+    caffemodel: "models/res10_300x300_ssd_iter_140000.caffemodel"
+    confidence: 0.6
+
+  # ROI configuration
+  roi:
+    use_multi_region: true
+    regions:
+      - name: "forehead"
+        weight: 0.4
+        geometry:
+          top_ratio: 0.15 # 15% from hairline
+          bottom_ratio: 0.35 # 35% from hairline
+          left_ratio: 0.25 # 25% from face left
+          right_ratio: 0.75 # 75% from face left
+
+      - name: "left_cheek"
+        weight: 0.3
+        geometry:
+          top_ratio: 0.45
+          bottom_ratio: 0.65
+          left_ratio: 0.15
+          right_ratio: 0.40
+
+      - name: "right_cheek"
+        weight: 0.3
+        geometry:
+          top_ratio: 0.45
+          bottom_ratio: 0.65
+          left_ratio: 0.60
+          right_ratio: 0.85
+
+    # Skin segmentation in YCbCr
+    skin_segmentation:
+      enabled: true
+      cb_range: [77, 127]
+      cr_range: [133, 173]
+      morph_kernel_size: 5
+
+# Signal Processing Configuration
+processing:
+  # Temporal windows
+  windows:
+    fast:
+      duration: 10.0 # seconds
+      update_interval: 1.0 # seconds
+    slow:
+      duration: 30.0 # seconds
+      update_interval: 5.0 # seconds
+
+  # Filtering (Chebyshev Type II)
+  filter:
+    type: "cheby2"
+    order: 5
+    ripple_db: 40 # stopband attenuation
+    bandpass:
+      low: 0.67 # Hz (40 BPM)
+      high: 4.0 # Hz (240 BPM)
+
+  # Heart rate estimation
+  bpm:
+    min: 40
+    max: 240
+    estimation_method: "welch" # 'welch' or 'fft'
+    welch:
+      nperseg: 256
+      noverlap: 128
+
+    # Peak frequency tracking
+    pft:
+      enabled: true
+      tracking_range: 0.3 # Hz around previous peak
+      min_prominence: 0.1
+
+  # Detrending
+  detrending:
+    method: "savgol" # 'savgol' or 'polynomial'
+    savgol:
+      window_length: 15
+      polyorder: 3
+    polynomial:
+      order: 3
+
+  # Temporal smoothing
+  smoothing:
+    enabled: true
+    ema_alpha: 0.3
+
+  # Quality thresholds
+  quality:
+    sqi_high: 0.75
+    sqi_low: 0.2
+    snr_min: 0.0 # dB
+    cross_validation:
+      enabled: true
+      tolerance: 5 # BPM
+
+# Motion Detection Configuration
+motion:
+  method: "sparse_lk" # 'sparse_lk' (Lucas-Kanade) or 'dense_farneback'
+
+  # Lucas-Kanade parameters
+  sparse_lk:
+    feature_params:
+      max_corners: 100
+      quality_level: 0.3
+      min_distance: 7
+      block_size: 7
+    threshold: 15.0 # pixels average displacement (increased for less sensitivity)
+
+  # Farneback parameters (fallback)
+  dense_farneback:
+    threshold: 2.0
+
+  # Signal variance check
+  variance:
+    enabled: false # Disable variance check for now
+    threshold: 0.3
+    buffer_size: 60
+
+  # Timing
+  grace_period: 0.5 # seconds (very short recovery)
+  hold_duration: 10.0 # seconds
+  no_face_timeout: 5.0 # seconds
+
+# Lighting Compensation Configuration
+lighting:
+  # Gamma correction
+  gamma:
+    enabled: true
+    auto_adjust: true
+    default_value: 1.2
+    range: [0.8, 2.0]
+
+  # Contrast enhancement
+  clahe:
+    enabled: true
+    clip_limit: 2.0
+    tile_size: [8, 8]
+
+  # Change detection
+  change_detection:
+    enabled: true
+    threshold: 20 # 0-255 scale
+    history_size: 30
+    grace_period: 2.0 # seconds
+
+# Display Configuration
+display:
+  # Window settings
+  window:
+    title: "rPPG Heart Rate Monitor"
+    width: 1600
+    height: 900
+    fullscreen: false
+
+  # UI theme
+  theme:
+    style: "glassmorphism"
+    background_color: [10, 14, 39] # RGB
+    primary_color: [0, 255, 255] # Cyan
+    secondary_color: [0, 255, 127] # Spring Green
+    warning_color: [255, 165, 0] # Orange
+    error_color: [255, 69, 0] # Red-Orange
+    text_color: [255, 255, 255] # White
+    alpha: 0.7
+
+  # Panels
+  panels:
+    video_feed:
+      enabled: true
+      show_roi: true
+      show_landmarks: false
+      roi_colors:
+        forehead: [255, 0, 0] # Blue
+        left_cheek: [0, 255, 0] # Green
+        right_cheek: [0, 0, 255] # Red
+
+    signal_waveform:
+      enabled: true
+      duration: 10.0 # seconds
+      show_raw: true
+      show_filtered: true
+      normalize: true
+
+    frequency_spectrum:
+      enabled: true
+      show_harmonics: true
+      freq_range: [0.5, 4.5] # Hz
+
+    bpm_history:
+      enabled: true
+      duration: 60.0 # seconds
+      show_fast: true
+      show_slow: true
+
+    status_indicators:
+      enabled: true
+      show_fps: true
+      show_sqi: true
+      show_snr: true
+      show_warnings: true
+
+  # Update rate
+  update_rate: 30 # Hz
+
+  # Debug overlay
+  debug:
+    enabled: false
+    show_latency: true
+    show_buffer_size: true
+    show_frame_drops: true
+
+# Performance Configuration
+performance:
+  # Async task priorities
+  async_tasks:
+    capture_priority: "high"
+    process_priority: "normal"
+    display_priority: "normal"
+
+  # Queue sizes
+  queues:
+    capture_to_process: 5
+    process_to_display: 3
+
+  # Optimization
+  optimization:
+    auto_optimize: true
+    adaptive_quality: true
+    skip_frames: false
+    max_latency_ms: 100
+
+  # Monitoring
+  monitoring:
+    enabled: true
+    check_interval: 5.0 # seconds
+    log_performance: true
+
+# Logging Configuration
+logging:
+  level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+  # File logging
+  file:
+    enabled: true
+    directory: "logs"
+    max_size_mb: 5
+    backup_count: 3
+    rotation: "size" # 'size' or 'time'
+
+  # Console logging
+  console:
+    enabled: true
+    colorized: true
+
+  # Data export
+  export:
+    signal_data: false
+    csv_output: "data/signal_export.csv"
+    include_timestamps: true
+
+# Calibration Configuration
+calibration:
+  auto_calibrate: false
+  duration: 10.0 # seconds
+  save_results: true
+  calibration_file: "user_calibration.yaml"
+
+  # Adaptive thresholds
+  adaptation:
+    enabled: false
+    range: 0.2 # ±20%
