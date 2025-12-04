@@ -237,30 +237,92 @@ class SignalProcessor:
             freqs_valid = freqs[valid_idx]
             power_valid = power[valid_idx]
 
-            # Apply Peak Frequency Tracking if enabled
-            if self.pft_config.enabled and self.previous_peak_freq is not None:
-                # Focus on region around previous peak
-                tracking_range = self.pft_config.tracking_range
-                lower_freq = max(freq_min, self.previous_peak_freq - tracking_range)
-                upper_freq = min(freq_max, self.previous_peak_freq + tracking_range)
+            # Harmonic suppression: Check if we're detecting a harmonic
+            # Look for subharmonics (half frequency) with significant power
+            harmonic_suppressed = False
+            peak_freq = None
+            peak_power = None
 
-                tracking_idx = (freqs_valid >= lower_freq) & (freqs_valid <= upper_freq)
+            # Find all peaks to check for harmonics
+            all_peaks, properties = find_peaks(
+                power_valid, height=np.max(power_valid) * 0.25, distance=5
+            )
 
-                if np.any(tracking_idx):
-                    freqs_valid = freqs_valid[tracking_idx]
-                    power_valid = power_valid[tracking_idx]
+            if len(all_peaks) >= 1:
+                # Get peak frequencies and powers
+                peak_freqs = freqs_valid[all_peaks]
+                peak_powers = power_valid[all_peaks]
 
-            # Find peak
-            peak_idx = np.argmax(power_valid)
-            peak_freq = freqs_valid[peak_idx]
-            peak_power = power_valid[peak_idx]
+                # Find the strongest peak
+                strongest_idx = np.argmax(peak_powers)
+                strongest_freq = peak_freqs[strongest_idx]
+                strongest_power = peak_powers[strongest_idx]
+                
+                # DIRECT CHECK: If strongest is > 100 BPM, prefer fundamental range (50-90 BPM)
+                if strongest_freq * 60.0 > 100.0:
+                    # Look for peaks in fundamental range
+                    fundamental_range = (peak_freqs >= 50.0/60.0) & (peak_freqs <= 90.0/60.0)
+                    if np.any(fundamental_range):
+                        fundamental_peaks = peak_powers[fundamental_range]
+                        fundamental_freqs = peak_freqs[fundamental_range]
+                        # If any fundamental peak has > 25% power, use it
+                        if np.max(fundamental_peaks) > strongest_power * 0.25:
+                            peak_freq = fundamental_freqs[np.argmax(fundamental_peaks)]
+                            peak_power = np.max(fundamental_peaks)
+                            harmonic_suppressed = True
+                            logger.info(
+                                f"Fundamental preferred! Using {peak_freq*60:.1f} BPM (power={peak_power:.2f}) instead of {strongest_freq*60:.1f} BPM (power={strongest_power:.2f})"
+                            )
+                
+                # If not yet suppressed, check if there's a subharmonic (half frequency) with good power
+                if not harmonic_suppressed and len(all_peaks) >= 2:
+                    for i, freq in enumerate(peak_freqs):
+                        if i != strongest_idx:
+                            # Check if this is roughly half the strongest peak
+                            ratio = strongest_freq / freq
+                            if 1.8 <= ratio <= 2.2:  # Allows for slight deviation
+                                # If subharmonic has > 30% power of main peak, use it instead (more aggressive)
+                                if peak_powers[i] > strongest_power * 0.3:
+                                    peak_freq = freq
+                                    peak_power = peak_powers[i]
+                                    harmonic_suppressed = True
+                                    logger.info(
+                                        f"Harmonic detected! Using {freq*60:.1f} BPM (power={peak_powers[i]:.2f}) instead of {strongest_freq*60:.1f} BPM (power={strongest_power:.2f})"
+                                    )
+                                    break
+
+            # If no harmonic detected, use standard peak finding
+            if not harmonic_suppressed:
+                # Apply Peak Frequency Tracking if enabled
+                if self.pft_config.enabled and self.previous_peak_freq is not None:
+                    # Focus on region around previous peak
+                    tracking_range = self.pft_config.tracking_range
+                    lower_freq = max(freq_min, self.previous_peak_freq - tracking_range)
+                    upper_freq = min(freq_max, self.previous_peak_freq + tracking_range)
+
+                    tracking_idx = (freqs_valid >= lower_freq) & (
+                        freqs_valid <= upper_freq
+                    )
+
+                    if np.any(tracking_idx):
+                        freqs_valid = freqs_valid[tracking_idx]
+                        power_valid = power_valid[tracking_idx]
+
+                # Find peak
+                peak_idx = np.argmax(power_valid)
+                peak_freq = freqs_valid[peak_idx]
+                peak_power = power_valid[peak_idx]
 
             # Convert to BPM
             bpm = peak_freq * 60.0
 
             # Calculate confidence based on peak prominence
-            if len(power_valid) > 1:
-                mean_power = np.mean(power_valid)
+            # Use the full spectrum for confidence calculation
+            all_freqs_in_range = freqs[valid_idx]
+            all_power_in_range = power[valid_idx]
+            
+            if len(all_power_in_range) > 1:
+                mean_power = np.mean(all_power_in_range)
                 if mean_power > 0:
                     prominence = (peak_power - mean_power) / mean_power
                     confidence = min(1.0, prominence / 2.0)

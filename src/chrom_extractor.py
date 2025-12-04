@@ -210,17 +210,17 @@ class CHROMExtractor:
             # Convert buffer to array: (frames, 3)
             rgb_array = np.array(buffer)
 
-            # Temporal normalization (zero mean, unit variance)
+            # Temporal normalization (mean normalization only - NOT z-score)
+            # CHROM paper: Rn(t) = R(t) / mean(R), NOT z-score normalization
             rgb_normalized = np.zeros_like(rgb_array)
             for i in range(3):
                 channel = rgb_array[:, i]
                 mean = np.mean(channel)
-                std = np.std(channel)
 
-                if std > 1e-6:
-                    rgb_normalized[:, i] = (channel - mean) / std
+                if mean > 1e-6:
+                    rgb_normalized[:, i] = channel / mean
                 else:
-                    rgb_normalized[:, i] = 0.0
+                    rgb_normalized[:, i] = 1.0
 
             # Extract normalized R, G, B
             Rn = rgb_normalized[:, 0]

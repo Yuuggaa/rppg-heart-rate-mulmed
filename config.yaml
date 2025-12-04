@@ -79,12 +79,12 @@ processing:
     ripple_db: 40 # stopband attenuation
     bandpass:
       low: 0.67 # Hz (40 BPM)
-      high: 4.0 # Hz (240 BPM)
+      high: 3.0 # Hz (180 BPM)
 
   # Heart rate estimation
   bpm:
     min: 40
-    max: 240
+    max: 180
     estimation_method: "welch" # 'welch' or 'fft'
     welch:
       nperseg: 256
@@ -93,7 +93,7 @@ processing:
     # Peak frequency tracking
     pft:
       enabled: true
-      tracking_range: 0.3 # Hz around previous peak
+      tracking_range: 0.15 # Hz around previous peak (narrower to avoid harmonics)
       min_prominence: 0.1
 
   # Detrending
